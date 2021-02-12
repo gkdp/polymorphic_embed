@@ -18,6 +18,15 @@ if Code.ensure_loaded?(Phoenix.HTML) && Code.ensure_loaded?(Phoenix.HTML.Form) d
       )
     end
 
+    def polymorphic_embed_inputs_for(form, field, type)
+        when is_atom(field) or is_binary(field) do
+      options =
+        form.options
+        |> Keyword.take([:multipart])
+
+      to_form(form.source, form, field, type, options)
+    end
+
     def to_form(%{action: parent_action} = source_changeset, form, field, type, options) do
       id = to_string(form.id <> "_#{field}")
       name = to_string(form.name <> "[#{field}]")
@@ -118,15 +127,31 @@ if Code.ensure_loaded?(Phoenix.HTML) && Code.ensure_loaded?(Phoenix.HTML.Form) d
           get_embed_struct(changeset, embed_field, embed_params)
 
       embed_changeset =
-        %Ecto.Changeset{
-          data: embed_data,
-          action: changeset.action,
-          params: embed_params,
-          errors: embed_errors,
-          valid?: embed_errors == [],
-          changes: %{}
-        }
-        |> add_changes_for_nested_embeds(embed_params, embed_errors)
+        if is_list(embed_data) do
+          for {embed, index} <- Enum.with_index(embed_data) do
+            %Ecto.Changeset{
+              data: embed,
+              action: changeset.action,
+              params: Map.get(embed_params, "#{index}"),
+              errors: embed_errors,
+              types: embed.__struct__.__changeset__(),
+              valid?: embed_errors == [],
+              changes: %{}
+            }
+            |> add_changes_for_nested_embeds(Map.get(embed_params, "#{index}"), embed_errors)
+          end
+        else
+          %Ecto.Changeset{
+            data: embed_data,
+            action: changeset.action,
+            params: embed_params,
+            errors: embed_errors,
+            types: embed_data.__struct__.__changeset__(),
+            valid?: embed_errors == [],
+            changes: %{}
+          }
+          |> add_changes_for_nested_embeds(embed_params, embed_errors)
+        end
 
       changeset = %{changeset | changes: Map.put(changeset.changes, embed_field, embed_changeset)}
 
